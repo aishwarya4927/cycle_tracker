@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cycle Tracker | Login</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <style>
+    .auth-box {
+      max-width: 400px;
+      margin: 5rem auto;
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    }
+    .auth-box h2 {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+    .toggle-link {
+      text-align: center;
+      margin-top: 1rem;
+      cursor: pointer;
+      color: #9b4d96;
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-box">
+    <h2>🌸 Cycle Tracker</h2>
+    <div id="message" style="margin-bottom: 1rem; color: red;"></div>
+
+    <div id="loginForm">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="loginEmail" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="loginPassword" required>
+      </div>
+      <button id="loginBtn">Login</button>
+      <p class="toggle-link" onclick="showSignup()">Don't have an account? Sign up</p>
+    </div>
+
+    <div id="signupForm" style="display: none;">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="signupName" required>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="signupEmail" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="signupPassword" required>
+      </div>
+      <button id="signupBtn">Sign Up</button>
+      <p class="toggle-link" onclick="showLogin()">Already have an account? Login</p>
+    </div>
+  </div>
+
+  <script>
+    const API = API_BASE;
+
+    const messageDiv = document.getElementById('message');
+
+    function showMessage(msg, isError = true) {
+      messageDiv.textContent = msg;
+      messageDiv.style.color = isError ? 'red' : 'green';
+      setTimeout(() => messageDiv.textContent = '', 3000);
+    }
+
+    async function login() {
+      const email = document.getElementById('loginEmail').value;
+      const password = document.getElementById('loginPassword').value;
+      if (!email || !password) {
+        showMessage('Please fill all fields');
+        return;
+      }
+      try {
+        const res = await fetch(`${API}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          showMessage(data.message);
+        } else {
+          localStorage.setItem('token', data.token);
+          localStorage.setItem('user', JSON.stringify(data.user));
+          window.location.href = 'dashboard.html';
+        }
+      } catch (err) {
+        showMessage('Connection error. Is backend running?');
+      }
+    }
+
+    async function signup() {
+      const name = document.getElementById('signupName').value;
+      const email = document.getElementById('signupEmail').value;
+      const password = document.getElementById('signupPassword').value;
+      if (!name || !email || !password) {
+        showMessage('Please fill all fields');
+        return;
+      }
+      if (password.length < 6) {
+        showMessage('Password must be at least 6 characters');
+        return;
+      }
+      try {
+        const res = await fetch(`${API}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, password })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          showMessage(data.message);
+        } else {
+          localStorage.setItem('token', data.token);
+          localStorage.setItem('user', JSON.stringify(data.user));
+          window.location.href = 'dashboard.html';
+        }
+      } catch (err) {
+        showMessage('Connection error. Is backend running?');
+      }
+    }
+
+    function showSignup() {
+      document.getElementById('loginForm').style.display = 'none';
+      document.getElementById('signupForm').style.display = 'block';
+      messageDiv.textContent = '';
+    }
+
+    function showLogin() {
+      document.getElementById('loginForm').style.display = 'block';
+      document.getElementById('signupForm').style.display = 'none';
+      messageDiv.textContent = '';
+    }
+
+    document.getElementById('loginBtn').addEventListener('click', login);
+    document.getElementById('signupBtn').addEventListener('click', signup);
+
+    // If already logged in, redirect
+    if (localStorage.getItem('token')) {
+      window.location.href = 'dashboard.html';
+    }
+  </script>
+</body>
+</html>

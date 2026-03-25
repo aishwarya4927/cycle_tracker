@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cycle Tracker - Predictions</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+</head>
+<body>
+  <nav>
+    <div>
+      <strong>🌸 Cycle Tracker</strong>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="predictions.html">Predictions</a>
+    </div>
+    <div>
+      <span id="userName" style="margin-right: 1rem;"></span>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div id="loading" class="text-center" style="padding: 2rem;">Loading predictions...</div>
+    <div id="content" style="display: none;">
+      <!-- Stats summary -->
+      <div class="stats-grid" id="statsSummary"></div>
+
+      <!-- Alert -->
+      <div id="alertArea"></div>
+
+      <!-- Cycle phases info -->
+      <div class="card">
+        <h3>🔍 Cycle Phases</h3>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+          <div class="phase-card" style="flex:1; background:#f9f1fc; padding:0.8rem; border-radius:8px;"><strong>Menstrual</strong><br>Days 1-5. Rest and self-care.</div>
+          <div class="phase-card" style="flex:1; background:#f9f1fc; padding:0.8rem; border-radius:8px;"><strong>Follicular</strong><br>Days 6-13. Energy rising.</div>
+          <div class="phase-card" style="flex:1; background:#f9f1fc; padding:0.8rem; border-radius:8px;"><strong>Ovulation</strong><br>Days 14-16. Peak fertility.</div>
+          <div class="phase-card" style="flex:1; background:#f9f1fc; padding:0.8rem; border-radius:8px;"><strong>Luteal</strong><br>Days 17-28. Wind down.</div>
+        </div>
+      </div>
+
+      <!-- Next 3 period predictions -->
+      <div class="card">
+        <h3>📅 Next 3 Predicted Periods</h3>
+        <div id="predictionCards" class="prediction-cards"></div>
+      </div>
+
+      <!-- Cycle history chart (simple bar chart) -->
+      <div class="card">
+        <h3>📊 Cycle Length History</h3>
+        <div id="historyChart" style="display: flex; align-items: flex-end; gap: 0.5rem; height: 150px; margin-top: 1rem; border-bottom: 1px solid #ccc;"></div>
+        <p class="text-center" style="margin-top: 0.5rem; font-size: 0.8rem; color:#666;">Last 8 cycles (dark = irregular)</p>
+      </div>
+    </div>
+    <div id="noData" style="display: none;" class="text-center">No cycle data yet. Log your first period on the dashboard.</div>
+  </div>
+
+  <script>
+    const API = API_BASE;
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+    if (!token) window.location.href = 'index.html';
+    document.getElementById('userName').textContent = user.name || '';
+
+    function logout() {
+      localStorage.clear();
+      window.location.href = 'index.html';
+    }
+
+    async function loadPredictions() {
+      try {
+        const res = await fetch(`${API}/predictions`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) {
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('noData').style.display = 'block';
+          return;
+        }
+        const data = await res.json();
+        if (!data.success) {
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('noData').style.display = 'block';
+          return;
+        }
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = 'block';
+
+        const summary = data.summary;
+        // Stats summary
+        const statsHtml = `
+          <div class="stat-card"><div class="stat-number">${summary.averageCycleLength}</div><div class="stat-label">Avg Cycle Length</div></div>
+          <div class="stat-card"><div class="stat-number">${summary.averagePeriodLength}</div><div class="stat-label">Avg Period Length</div></div>
+          <div class="stat-card"><div class="stat-number">${summary.currentPhase.charAt(0).toUpperCase() + summary.currentPhase.slice(1)}</div><div class="stat-label">Current Phase</div></div>
+          <div class="stat-card"><div class="stat-number">${summary.currentDayOfCycle}</div><div class="stat-label">Day of Cycle</div></div>
+          <div class="stat-card"><div class="stat-number">${summary.totalCyclesTracked}</div><div class="stat-label">Cycles Tracked</div></div>
+        `;
+        document.getElementById('statsSummary').innerHTML = statsHtml;
+
+        // Alert
+        if (summary.irregularityAlert) {
+          document.getElementById('alertArea').innerHTML = `<div class="alert alert-warning">⚠️ ${summary.irregularityAlert}</div>`;
+        } else {
+          document.getElementById('alertArea').innerHTML = `<div class="alert alert-success">✅ Your cycles appear regular.</div>`;
+        }
+
+        // Prediction cards
+        const predCardsDiv = document.getElementById('predictionCards');
+        predCardsDiv.innerHTML = '';
+        data.predictions.forEach((pred, idx) => {
+          const start = new Date(pred.predictedStartDate).toLocaleDateString();
+          const end = new Date(pred.predictedEndDate).toLocaleDateString();
+          const ovu = new Date(pred.ovulationDate).toLocaleDateString();
+          const fertileStart = new Date(pred.fertileWindowStart).toLocaleDateString();
+          const fertileEnd = new Date(pred.fertileWindowEnd).toLocaleDateString();
+          predCardsDiv.innerHTML += `
+            <div class="pred-card">
+              <h4>${idx === 0 ? 'Next Period' : idx === 1 ? '2nd Period' : '3rd Period'}</h4>
+              <p><strong>Start:</strong> ${start}<br>
+              <strong>End:</strong> ${end}<br>
+              <strong>Ovulation:</strong> ${ovu}<br>
+              <strong>Fertile Window:</strong> ${fertileStart} – ${fertileEnd}</p>
+            </div>
+          `;
+        });
+
+        // Cycle history chart (fetch cycles)
+        const cyclesRes = await fetch(`${API}/cycles`, { headers: { Authorization: `Bearer ${token}` } });
+        const cyclesData = await cyclesRes.json();
+        if (cyclesData.success && cyclesData.cycles.length) {
+          const cycles = cyclesData.cycles.filter(c => c.cycleLength).slice(-8).reverse();
+          const maxLen = Math.max(...cycles.map(c => c.cycleLength), 35);
+          const chartDiv = document.getElementById('historyChart');
+          chartDiv.innerHTML = '';
+          cycles.forEach(c => {
+            const height = (c.cycleLength / maxLen) * 100;
+            const date = new Date(c.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            chartDiv.innerHTML += `
+              <div style="flex:1; text-align:center;">
+                <div style="height: ${height}px; background: ${c.isIrregular ? '#d4a0e0' : '#9b4d96'}; width: 100%; border-radius: 4px 4px 0 0;"></div>
+                <div style="font-size: 11px;">${c.cycleLength}d</div>
+                <div style="font-size: 10px;">${date}</div>
+              </div>
+            `;
+          });
+        } else {
+          document.getElementById('historyChart').innerHTML = '<p>No cycle length data yet.</p>';
+        }
+      } catch (err) {
+        console.error(err);
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('noData').style.display = 'block';
+      }
+    }
+
+    loadPredictions();
+  </script>
+</body>
+</html>

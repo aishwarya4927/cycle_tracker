@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cycle Tracker - Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+</head>
+<body>
+  <nav>
+    <div>
+      <strong>🌸 Cycle Tracker</strong>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="predictions.html">Predictions</a>
+    </div>
+    <div>
+      <span id="userName" style="margin-right: 1rem;"></span>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="container">
+    <!-- Stats row -->
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card">
+        <div class="stat-number" id="phase">-</div>
+        <div class="stat-label">Current Phase</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="avgCycle">-</div>
+        <div class="stat-label">Avg Cycle (days)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="daysUntil">-</div>
+        <div class="stat-label">Days to Next Period</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="cycleCount">0</div>
+        <div class="stat-label">Cycles Logged</div>
+      </div>
+    </div>
+
+    <!-- Alert area for irregularities -->
+    <div id="alertArea"></div>
+
+    <div class="card">
+      <h2>📅 Cycle Calendar</h2>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <button id="prevMonthBtn">◀ Prev</button>
+        <strong id="monthYear"></strong>
+        <button id="nextMonthBtn">Next ▶</button>
+      </div>
+      <table class="calendar" id="calendarTable">
+        <thead>
+          <tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr>
+        </thead>
+        <tbody id="calendarBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>📝 Log Period</h2>
+      <div id="logMsg"></div>
+      <div class="form-group">
+        <label>Start Date</label>
+        <input type="date" id="startDate" required>
+      </div>
+      <div class="form-group">
+        <label>End Date (optional)</label>
+        <input type="date" id="endDate">
+      </div>
+      <div class="form-group">
+        <label>Flow</label>
+        <select id="flow">
+          <option value="light">Light</option>
+          <option value="medium" selected>Medium</option>
+          <option value="heavy">Heavy</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Symptoms (click to select)</label>
+        <div class="symptom-chips" id="symptomChips">
+          <span data-symptom="cramps" class="chip">Cramps</span>
+          <span data-symptom="headache" class="chip">Headache</span>
+          <span data-symptom="bloating" class="chip">Bloating</span>
+          <span data-symptom="fatigue" class="chip">Fatigue</span>
+          <span data-symptom="backache" class="chip">Backache</span>
+          <span data-symptom="nausea" class="chip">Nausea</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes (optional)</label>
+        <textarea id="notes" rows="2"></textarea>
+      </div>
+      <button id="savePeriodBtn">Save Period</button>
+    </div>
+  </div>
+
+  <script>
+    const API = API_BASE;
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+    if (!token) window.location.href = 'index.html';
+
+    document.getElementById('userName').textContent = user.name || '';
+
+    let currentDate = new Date();
+    let cycles = [];           // all cycles from backend
+    let predictions = null;    // prediction data
+    let selectedSymptoms = new Set();
+
+    // ---- Symptom chip selection ----
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        chip.classList.toggle('selected');
+        const symptom = chip.dataset.symptom;
+        if (chip.classList.contains('selected')) {
+          selectedSymptoms.add(symptom);
+        } else {
+          selectedSymptoms.delete(symptom);
+        }
+      });
+    });
+
+    // ---- Logout ----
+    function logout() {
+      localStorage.clear();
+      window.location.href = 'index.html';
+    }
+
+    // ---- Fetch cycles and predictions ----
+    async function fetchData() {
+      try {
+        const [cyclesRes, predRes] = await Promise.all([
+          fetch(`${API}/cycles`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API}/predictions`, { headers: { Authorization: `Bearer ${token}` } })
+        ]);
+        const cyclesData = await cyclesRes.json();
+        if (cyclesData.success) {
+          cycles = cyclesData.cycles;
+          document.getElementById('cycleCount').textContent = cycles.length;
+        }
+        if (predRes.ok) {
+          const predData = await predRes.json();
+          if (predData.success) {
+            predictions = predData;
+            updateStats(predData.summary);
+            // Show irregularity alert
+            const alertDiv = document.getElementById('alertArea');
+            if (predData.summary.irregularityAlert) {
+              alertDiv.innerHTML = `<div class="alert alert-warning">⚠️ ${predData.summary.irregularityAlert}</div>`;
+            } else {
+              alertDiv.innerHTML = `<div class="alert alert-success">✅ Your cycles appear regular.</div>`;
+            }
+          }
+        }
+        renderCalendar();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function updateStats(summary) {
+      document.getElementById('phase').textContent = summary.currentPhase.charAt(0).toUpperCase() + summary.currentPhase.slice(1);
+      document.getElementById('avgCycle').textContent = summary.averageCycleLength;
+      // Days until next period
+      if (predictions && predictions.predictions && predictions.predictions.length > 0) {
+        const nextStart = new Date(predictions.predictions[0].predictedStartDate);
+        const diffDays = Math.ceil((nextStart - new Date()) / (1000 * 60 * 60 * 24));
+        document.getElementById('daysUntil').textContent = diffDays > 0 ? diffDays : 0;
+      } else {
+        document.getElementById('daysUntil').textContent = '-';
+      }
+    }
+
+    // ---- Calendar rendering ----
+    function renderCalendar() {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth(); // 0-11
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      document.getElementById('monthYear').textContent = `${monthNames[month]} ${year}`;
+
+      // Build sets of dates for period days and predicted days
+      const periodDays = new Set();
+      cycles.forEach(cycle => {
+        const start = new Date(cycle.startDate);
+        const end = cycle.endDate ? new Date(cycle.endDate) : new Date(start.getTime() + 5 * 86400000);
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          if (d.getFullYear() === year && d.getMonth() === month) {
+            periodDays.add(d.getDate());
+          }
+        }
+      });
+
+      const predictedDays = new Set();
+      if (predictions && predictions.predictions) {
+        predictions.predictions.forEach(p => {
+          const start = new Date(p.predictedStartDate);
+          const end = new Date(p.predictedEndDate);
+          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            if (d.getFullYear() === year && d.getMonth() === month) {
+              predictedDays.add(d.getDate());
+            }
+          }
+        });
+      }
+
+      const today = new Date();
+      const tbody = document.getElementById('calendarBody');
+      tbody.innerHTML = '';
+      let row = document.createElement('tr');
+      for (let i = 0; i < firstDay; i++) row.appendChild(document.createElement('td'));
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const td = document.createElement('td');
+        td.textContent = day;
+        if (periodDays.has(day)) td.classList.add('period');
+        else if (predictedDays.has(day)) td.classList.add('predicted');
+        if (today.getFullYear() === year && today.getMonth() === month && today.getDate() === day) {
+          td.classList.add('today');
+        }
+        row.appendChild(td);
+        if ((firstDay + day) % 7 === 0) {
+          tbody.appendChild(row);
+          row = document.createElement('tr');
+        }
+      }
+      if (row.children.length) tbody.appendChild(row);
+    }
+
+    function changeMonth(delta) {
+      currentDate.setMonth(currentDate.getMonth() + delta);
+      renderCalendar();
+    }
+
+    document.getElementById('prevMonthBtn').addEventListener('click', () => changeMonth(-1));
+    document.getElementById('nextMonthBtn').addEventListener('click', () => changeMonth(1));
+
+    // ---- Save Period ----
+    async function savePeriod() {
+      const startDate = document.getElementById('startDate').value;
+      const endDate = document.getElementById('endDate').value || null;
+      const flow = document.getElementById('flow').value;
+      const symptoms = Array.from(selectedSymptoms);
+      const notes = document.getElementById('notes').value;
+
+      if (!startDate) {
+        document.getElementById('logMsg').innerHTML = '<span style="color:red">Start date is required</span>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API}/cycles`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ startDate, endDate, flow, symptoms, notes })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          document.getElementById('logMsg').innerHTML = `<span style="color:red">${data.message}</span>`;
+        } else {
+          document.getElementById('logMsg').innerHTML = '<span style="color:green">Period logged successfully!</span>';
+          // Reset form
+          document.getElementById('endDate').value = '';
+          document.getElementById('notes').value = '';
+          selectedSymptoms.clear();
+          document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+          // Refresh data
+          await fetchData();
+          setTimeout(() => document.getElementById('logMsg').innerHTML = '', 3000);
+        }
+      } catch (err) {
+        document.getElementById('logMsg').innerHTML = '<span style="color:red">Connection error. Is backend running?</span>';
+      }
+    }
+
+    document.getElementById('savePeriodBtn').addEventListener('click', savePeriod);
+
+    // Initialize
+    fetchData();
+  </script>
+</body>
+</html>
